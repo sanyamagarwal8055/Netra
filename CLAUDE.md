@@ -26,13 +26,13 @@ This file is the shared source of truth for how the two contributors work in thi
 - `src/redaction/**`
 - `src/ui/**`
 - `src/mock/**`
+- `src/shared/imageUtils.js`  — ownership decided 10-09-2026; was previously shared/unresolved
 - `tests/redaction/**`
 
 ### Shared — requires coordination before editing:
 - `manifest.json`
 - `package.json`
 - `src/shared/types.js`
-- `src/shared/imageUtils.js`
 - `README.md`
 - `CLAUDE.md`
 
@@ -85,7 +85,26 @@ Person 2 develops against `src/mock/mockDetections.js` (fake `Detection[]` match
 
 ---
 
-## 5. Out of scope for now
+## 5. Technical approach (decided, not to be re-litigated without discussion)
+
+This is computer-vision-only. There is no DOM or Accessibility Tree access anywhere in this prototype — the input is a static image, not a live browser tab. Nobody trains a model from scratch; the detection side composes pretrained, open-source models via in-browser inference.
+
+**Detection pipeline (Person 1):**
+1. Face detection on the raw image (e.g. YuNet via ONNX Runtime Web) → face bounding boxes.
+2. OCR to locate and extract text regions (e.g. Tesseract.js).
+3. PII classification on extracted text — regex first for structured PII (email, phone), optionally a small NER model for names.
+4. Fusion — merge face + PII detections into one `Detection[]`, resolve overlaps, assign type/label/confidence.
+
+**Redaction pipeline (Person 2):**
+1. Draw the original image to canvas.
+2. Redact each `Detection` by type: blur or pixelate for `face`, solid black-out for `password`, blur or a masking bar for `email`/`phone`/`text-pii`.
+3. Draw a Set-of-Mark numbered label near each redacted region.
+4. Export the final canvas as the output image.
+5. Empty `detections` array → return the original image unmodified, don't error.
+
+---
+
+## 6. Out of scope for now
 
 - Server-side processing, FastAPI backend, cloud VLM / grounded action reasoning
 - Chrome DevTools Protocol accessibility-tree capture, DOM-first PII detection

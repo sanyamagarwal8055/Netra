@@ -20,6 +20,7 @@ authoritative JSDoc definition — this file is a human-readable summary.
 
 - `detectSensitiveRegions(image): Promise<Detection[]>` — Person 1, `src/detection/index.js`
 - `renderRedactedImage(image, detections): HTMLCanvasElement` — Person 2, `src/redaction/index.js`
+- `loadImageFromFile(file)`, `imageToImageData(image)`, `canvasToDataUrl(canvas)` — Person 2, `src/shared/imageUtils.js` (ownership decided 10-09-2026)
 
 ## Change process
 
