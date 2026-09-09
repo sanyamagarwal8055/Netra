@@ -3,3 +3,7 @@ dist/
 .DS_Store
 *.log
 .env
+
+# Build artifact from `npm run build:wasm` (copied from node_modules/onnxruntime-web/dist);
+# these are 10s of MB per file, regenerate rather than commit.
+models/ort-wasm/

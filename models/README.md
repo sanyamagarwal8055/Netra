@@ -10,13 +10,14 @@ below as you add them.
 |------|---------|--------|---------|------|
 | `face_detection_yunet_2023mar.onnx` | Face detection (YuNet) | [opencv_zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) | Apache-2.0 | ~230 KB |
 
-**Not committed yet** — download `face_detection_yunet_2023mar.onnx` from the link above and place it
-in this folder before running `detectSensitiveRegions()` against real images (`src/detection/faceDetector.js`
-expects it at `models/face_detection_yunet_2023mar.onnx`).
+Committed at `models/face_detection_yunet_2023mar.onnx`, matching what `src/detection/faceDetector.js` expects.
 
 ### ORT wasm assets (MV3 note)
 
-`src/detection/faceDetector.js` points `onnxruntime-web`'s wasm loader at `models/ort-wasm/`. Manifest V3
-extensions can't load remotely-hosted code, so the `.wasm`/`.mjs` files from
-`node_modules/onnxruntime-web/dist` need to be copied into that folder as part of the build — there's no
-build pipeline for that yet (TODO).
+`src/detection/faceDetector.js` points `onnxruntime-web`'s wasm loader at `models/ort-wasm/` (via
+`chrome.runtime.getURL('models/ort-wasm/')` in an extension context, since Manifest V3 pages resolve plain
+relative URLs against the importing module, not the extension root). Extensions also can't load
+remotely-hosted code, so the `.wasm`/`.mjs` loader files need to live locally rather than being fetched
+from a CDN — run `npm run build:wasm` (see `scripts/copy-ort-wasm.mjs`) to copy them from
+`node_modules/onnxruntime-web/dist` into `models/ort-wasm/`. `models/ort-wasm/` itself is gitignored
+(regenerate it after every `npm install`, or whenever `onnxruntime-web` is upgraded).

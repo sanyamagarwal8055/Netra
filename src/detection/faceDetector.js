@@ -48,15 +48,24 @@ async function getOrt() {
 export async function loadFaceDetectorSession(modelUrl = 'models/face_detection_yunet_2023mar.onnx') {
   const ort = await getOrt();
   // MV3 extensions cannot load remotely-hosted code, so the ORT wasm binaries
-  // must be vendored locally (e.g. copied from
-  // node_modules/onnxruntime-web/dist) rather than fetched from a CDN.
-  // TODO(Person 1): wire up that copy step once a build pipeline exists.
+  // are vendored locally into models/ort-wasm/ (via `npm run build:wasm`,
+  // which copies them from node_modules/onnxruntime-web/dist) rather than
+  // fetched from a CDN.
   // Node (used for the manual smoke test in scripts/) resolves onnxruntime-web
   // to its own ort.node.min.mjs backend and doesn't need this — setting it
   // there breaks module resolution (it tries to `import` the path string).
   const isNode = typeof process !== 'undefined' && !!process.versions?.node;
   if (!isNode) {
-    ort.env.wasm.wasmPaths = 'models/ort-wasm/';
+    // A bare relative string is resolved against the *importing module's*
+    // URL (wherever the bundler places onnxruntime-web's loader), not the
+    // extension root or the popup page — fragile once this is bundled.
+    // chrome.runtime.getURL gives an absolute chrome-extension:// URL that's
+    // correct regardless of bundle layout. Fall back to the relative path
+    // for non-extension contexts (e.g. a plain browser page during dev).
+    const hasExtensionRuntime = typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
+    ort.env.wasm.wasmPaths = hasExtensionRuntime
+      ? chrome.runtime.getURL('models/ort-wasm/')
+      : 'models/ort-wasm/';
   }
   return ort.InferenceSession.create(modelUrl);
 }
