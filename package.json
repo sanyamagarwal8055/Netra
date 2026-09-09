@@ -1,0 +1,14 @@
+{
+  "name": "netra-extension",
+  "version": "0.1.0",
+  "description": "NETRA - privacy-preserving on-device visual perception prototype (SIH 2026, PS 26171)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
+  }
+}

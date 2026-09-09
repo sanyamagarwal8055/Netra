@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "NETRA - Privacy-Safe Visual Perception",
+  "version": "0.1.0",
+  "description": "Prototype: upload an image, detect sensitive regions on-device, output a redacted image.",
+  "action": {
+    "default_popup": "src/ui/popup.html",
+    "default_title": "NETRA"
+  },
+  "permissions": []
+}
