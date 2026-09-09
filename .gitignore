@@ -7,3 +7,8 @@ dist/
 # Build artifact from `npm run build:wasm` (copied from node_modules/onnxruntime-web/dist);
 # these are 10s of MB per file, regenerate rather than commit.
 models/ort-wasm/
+
+# Tesseract.js caches downloaded language data here by default (CWD, since
+# scripts/check-detection.mjs is run from the repo root and doesn't override
+# cachePath) — a local dev-run artifact, not source.
+*.traineddata
