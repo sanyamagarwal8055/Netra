@@ -58,7 +58,7 @@ globalThis.OffscreenCanvas = class OffscreenCanvas {
 };
 
 const { detectSensitiveRegions } = await import('../src/detection/index.js');
-const { runOcr } = await import('../src/detection/ocr.js');
+const { runOcr, terminateOcrWorker } = await import('../src/detection/ocr.js');
 const { classifyPii } = await import('../src/detection/piiClassifier.js');
 
 const imagePath = process.argv[2];
@@ -136,3 +136,7 @@ const parsed = path.parse(imagePath);
 const outPath = path.join(parsed.dir, `${parsed.name}.annotated.png`);
 await fs.writeFile(outPath, canvas.toBuffer('image/png'));
 console.log(`\nAnnotated image written to ${outPath}`);
+
+// Without this, Tesseract's worker_threads Worker keeps this process alive
+// indefinitely after the script's own logic is done.
+await terminateOcrWorker();

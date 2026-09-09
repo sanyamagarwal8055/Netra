@@ -7,7 +7,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:wasm": "node scripts/copy-ort-wasm.mjs"
+    "build:wasm": "node scripts/copy-ort-wasm.mjs",
+    "build:tesseract": "node scripts/copy-tesseract-assets.mjs"
   },
   "dependencies": {
     "onnxruntime-web": "^1.19.2",

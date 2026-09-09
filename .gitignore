@@ -8,7 +8,11 @@ dist/
 # these are 10s of MB per file, regenerate rather than commit.
 models/ort-wasm/
 
-# Tesseract.js caches downloaded language data here by default (CWD, since
-# scripts/check-detection.mjs is run from the repo root and doesn't override
-# cachePath) — a local dev-run artifact, not source.
+# Build artifact from `npm run build:tesseract` (worker script + wasm core
+# copied from node_modules, English language data downloaded once from
+# jsdelivr) — regenerate rather than commit.
+models/tesseract/
+
+# Tesseract.js's own opportunistic cache also defaults to writing here
+# unless cacheMethod/cachePath are overridden — a local dev-run artifact.
 *.traineddata

@@ -15,19 +15,49 @@
  * ("555" read as "553"). See piiClassifier.js's file header for the full
  * list of observed failures, including masked-password detection.
  *
- * TODO(Person 1): same MV3 CDN-loading gap already solved for
- * onnxruntime-web (see faceDetector.js and `npm run build:wasm`) applies
- * here too — by default Tesseract.js fetches its worker script, wasm core,
- * and language traineddata from a CDN, which MV3 extensions cannot do.
- * Not yet vendored locally; flagged as a known gap, not fixed in this pass.
+ * MV3 note: same CDN-loading gap already solved for onnxruntime-web (see
+ * faceDetector.js and `npm run build:wasm`) applied here too — by default
+ * Tesseract.js fetches its worker script, wasm core, and language
+ * traineddata from jsdelivr, which MV3 extensions cannot do. `npm run
+ * build:tesseract` (scripts/copy-tesseract-assets.mjs) vendors all three
+ * into models/tesseract/, and getWorker() below points at that local
+ * directory instead of letting Tesseract.js fall back to its CDN defaults.
  */
+
+const isNode = typeof process !== 'undefined' && !!process.versions?.node;
+
+function localAssetPath(relativePath) {
+  const hasExtensionRuntime = typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
+  // Same reasoning as faceDetector.js's wasmPaths fix: a bare relative
+  // string resolves against the importing module's URL once bundled, not
+  // the extension root, so chrome.runtime.getURL is needed for a
+  // bundle-layout-proof absolute URL. Fall back to the relative path for a
+  // plain (non-extension) browser page during dev.
+  return hasExtensionRuntime ? chrome.runtime.getURL(relativePath) : relativePath;
+}
 
 let workerPromise = null;
 function getWorker() {
   if (!workerPromise) {
     workerPromise = (async () => {
-      const { createWorker } = await import('tesseract.js');
-      return createWorker('eng');
+      const { createWorker, OEM } = await import('tesseract.js');
+      // Node's worker/core loading is already fully local by construction
+      // (getCore() `require()`s tesseract.js-core directly; workerPath
+      // would need to be a Node worker_threads-compatible module, and
+      // worker.min.js is a browser bundle that is NOT one — passing it
+      // under Node would break worker spawning). Its language-data loading
+      // is the one piece that's CDN-by-default under Node too, so that's
+      // the only path pointed locally here; workerPath/corePath are left
+      // untouched (Node's own internal defaults) when isNode.
+      const options = isNode
+        ? { langPath: 'models/tesseract', cacheMethod: 'none' }
+        : {
+            workerPath: localAssetPath('models/tesseract/worker.min.js'),
+            corePath: localAssetPath('models/tesseract/'),
+            langPath: localAssetPath('models/tesseract/'),
+            cacheMethod: 'none',
+          };
+      return createWorker('eng', OEM.LSTM_ONLY, options);
     })();
   }
   return workerPromise;
@@ -63,8 +93,6 @@ export function flattenBlocks(blocks) {
   return lines;
 }
 
-const isNode = typeof process !== 'undefined' && !!process.versions?.node;
-
 /**
  * Run OCR on `image` and return its text lines (see flattenBlocks), in
  * source-image pixel coordinates (no resizing is done, unlike the face
@@ -90,4 +118,18 @@ export async function runOcr(image) {
 
   const { data } = await worker.recognize(source, {}, { blocks: true });
   return flattenBlocks(data.blocks);
+}
+
+/**
+ * Terminate the cached OCR worker, if one was ever created. The browser
+ * extension doesn't need this (the worker thread dies with the popup page),
+ * but a standalone Node script does — otherwise Tesseract's worker_threads
+ * Worker keeps the process alive indefinitely after the script's own logic
+ * finishes (see scripts/check-detection.mjs, which calls this at the end).
+ */
+export async function terminateOcrWorker() {
+  if (!workerPromise) return;
+  const worker = await workerPromise;
+  workerPromise = null;
+  await worker.terminate();
 }
