@@ -5,30 +5,32 @@
  *
  * Model: face_detection_yunet_2023mar.onnx (OpenCV Zoo,
  * https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)
- * Expected at: models/face_detection_yunet_2023mar.onnx (see models/README.md —
- * the weights file itself isn't committed yet).
+ * Expected at: models/face_detection_yunet_2023mar.onnx (see models/README.md).
  *
- * Anchor generation and box decoding are a JS port of the reference
- * postprocessing in opencv_zoo's yunet.py (PriorBox + decode), needed here
- * because we run the raw ONNX graph via onnxruntime-web instead of
- * cv2.FaceDetectorYN, which does this decoding internally in OpenCV's C++ code.
+ * Box decoding is a JS port of the reference postprocessing in OpenCV's
+ * C++ YuNet implementation (modules/objdetect/src/face_detect.cpp), needed
+ * here because we run the raw ONNX graph via onnxruntime-web instead of
+ * cv2.FaceDetectorYN, which does this decoding internally.
  *
- * CAVEAT: this decode logic has been transcribed from the public reference
- * implementation but has NOT been numerically validated end-to-end against
- * the real model weights (the .onnx file isn't in the repo yet). Once it's
- * added, run a manual smoke test against a real photo before relying on this
- * for anything beyond development.
+ * VALIDATED (2026-09-10) against the real 2023mar weights via a manual smoke
+ * test (see scripts/check-face-detection.mjs). The real model:
+ *   - requires a 640x640 input (not 320x320 — an earlier, unvalidated draft
+ *     of this file assumed 320 and would throw on session.run()).
+ *   - has 12 separate per-stride outputs (cls_{8,16,32}, obj_{8,16,32},
+ *     bbox_{8,16,32}, kps_{8,16,32}) — one anchor per grid cell — rather
+ *     than a single concatenated [loc, conf, iou] tensor across all priors.
+ *     An earlier draft of this file assumed the latter (SSD/RetinaFace-style
+ *     multi-box-per-cell + variance decode) and would have silently produced
+ *     garbage boxes. landmarks (kps_*) are decoded by the model but unused
+ *     here since Detection has no landmark field.
  */
 
 // Square input simplifies prior-box indexing (the reference implementation's
 // row/col loop only lines up cleanly when width == height).
-const INPUT_SIZE = 320;
+const INPUT_SIZE = 640;
 const STEPS = [8, 16, 32];
-const MIN_SIZES = [[10, 16, 24], [32, 48], [64, 96, 128]];
-const VARIANCE = [0.1, 0.2];
 const CONF_THRESHOLD = 0.6;
 const NMS_THRESHOLD = 0.3;
-const LOC_STRIDE = 14; // 4 bbox values + 10 landmark values per anchor
 
 let ortModulePromise = null;
 async function getOrt() {
@@ -49,71 +51,71 @@ export async function loadFaceDetectorSession(modelUrl = 'models/face_detection_
   // must be vendored locally (e.g. copied from
   // node_modules/onnxruntime-web/dist) rather than fetched from a CDN.
   // TODO(Person 1): wire up that copy step once a build pipeline exists.
-  ort.env.wasm.wasmPaths = 'models/ort-wasm/';
+  // Node (used for the manual smoke test in scripts/) resolves onnxruntime-web
+  // to its own ort.node.min.mjs backend and doesn't need this — setting it
+  // there breaks module resolution (it tries to `import` the path string).
+  const isNode = typeof process !== 'undefined' && !!process.versions?.node;
+  if (!isNode) {
+    ort.env.wasm.wasmPaths = 'models/ort-wasm/';
+  }
   return ort.InferenceSession.create(modelUrl);
 }
 
-function computeFeatureMapSizes(inputSize) {
-  const fm2 = Math.floor(Math.floor((inputSize + 1) / 2) / 2);
-  const fm3 = Math.floor(fm2 / 2);
-  const fm4 = Math.floor(fm3 / 2);
-  const fm5 = Math.floor(fm4 / 2);
-  return [fm3, fm4, fm5];
-}
-
 /**
- * Generate YuNet prior (anchor) boxes for a square input.
+ * Generate YuNet grid-cell anchors for a square input: one anchor per
+ * (row, col) cell at each stride, in the order the model's flattened
+ * per-stride outputs are laid out (row-major).
  * @param {number} [inputSize]
- * @returns {number[][]} array of [cx, cy, w, h], normalized to 0..1
+ * @returns {{row:number, col:number, stride:number}[]}
  */
 export function generatePriors(inputSize = INPUT_SIZE) {
-  const featureMapSizes = computeFeatureMapSizes(inputSize);
   const priors = [];
-  featureMapSizes.forEach((f, k) => {
-    const minSizes = MIN_SIZES[k];
-    const step = STEPS[k];
-    for (let i = 0; i < f; i++) {
-      for (let j = 0; j < f; j++) {
-        for (const minSize of minSizes) {
-          const s = minSize / inputSize;
-          const cx = (j + 0.5) * step / inputSize;
-          const cy = (i + 0.5) * step / inputSize;
-          priors.push([cx, cy, s, s]);
-        }
+  for (const stride of STEPS) {
+    const fm = inputSize / stride;
+    for (let row = 0; row < fm; row++) {
+      for (let col = 0; col < fm; col++) {
+        priors.push({ row, col, stride });
       }
     }
-  });
+  }
   return priors;
 }
 
 /**
- * Decode raw YuNet outputs into (x, y, w, h, score) boxes, in normalized
- * [0,1] input-space coordinates (top-left origin).
- * @param {Float32Array|number[]} loc  flattened [numPriors, 14]
- * @param {Float32Array|number[]} conf flattened [numPriors, 2] (background, face)
- * @param {Float32Array|number[]} iouScores flattened [numPriors, 1]
- * @param {number[][]} priors
+ * Decode one stride's raw YuNet outputs into (x, y, w, h, score) boxes, in
+ * input-space pixel coordinates (top-left origin).
+ * Formula per OpenCV's objdetect/src/face_detect.cpp:
+ *   cx = (col + bbox[0]) * stride, cy = (row + bbox[1]) * stride
+ *   w  = exp(bbox[2]) * stride,    h  = exp(bbox[3]) * stride
+ *   score = sqrt(clamp(cls,0,1) * clamp(obj,0,1))
+ * @param {Float32Array|number[]} cls flattened [numCells] classification score
+ * @param {Float32Array|number[]} obj flattened [numCells] objectness score
+ * @param {Float32Array|number[]} bbox flattened [numCells, 4]
+ * @param {number} fm feature map size (grid is fm x fm)
+ * @param {number} stride
  * @returns {{x:number,y:number,w:number,h:number,score:number}[]}
  */
-export function decodeDetections(loc, conf, iouScores, priors) {
+export function decodeStride(cls, obj, bbox, fm, stride) {
   const boxes = [];
-  for (let idx = 0; idx < priors.length; idx++) {
-    const [cx, cy, sKx, sKy] = priors[idx];
-    const lx = loc[idx * LOC_STRIDE + 0];
-    const ly = loc[idx * LOC_STRIDE + 1];
-    const lw = loc[idx * LOC_STRIDE + 2];
-    const lh = loc[idx * LOC_STRIDE + 3];
+  for (let row = 0; row < fm; row++) {
+    for (let col = 0; col < fm; col++) {
+      const idx = row * fm + col;
+      const clsScore = Math.min(Math.max(cls[idx], 0), 1);
+      const objScore = Math.min(Math.max(obj[idx], 0), 1);
+      const score = Math.sqrt(clsScore * objScore);
 
-    const bcx = cx + lx * VARIANCE[0] * sKx;
-    const bcy = cy + ly * VARIANCE[0] * sKy;
-    const bw = sKx * Math.exp(lw * VARIANCE[1]);
-    const bh = sKy * Math.exp(lh * VARIANCE[1]);
+      const bx = bbox[idx * 4 + 0];
+      const by = bbox[idx * 4 + 1];
+      const bw = bbox[idx * 4 + 2];
+      const bh = bbox[idx * 4 + 3];
 
-    const classScore = conf[idx * 2 + 1];
-    const iouScore = Math.min(Math.max(iouScores[idx], 0), 1);
-    const score = Math.sqrt(Math.max(classScore * iouScore, 0));
+      const cx = (col + bx) * stride;
+      const cy = (row + by) * stride;
+      const w = Math.exp(bw) * stride;
+      const h = Math.exp(bh) * stride;
 
-    boxes.push({ x: bcx - bw / 2, y: bcy - bh / 2, w: bw, h: bh, score });
+      boxes.push({ x: cx - w / 2, y: cy - h / 2, w, h, score });
+    }
   }
   return boxes;
 }
@@ -179,11 +181,6 @@ export function preprocess(image, inputSize = INPUT_SIZE) {
   return { tensorData, scaleX: srcW / inputSize, scaleY: srcH / inputSize };
 }
 
-function pickOutput(outputs, outputNames, keywords, fallbackIndex) {
-  const name = outputNames.find((n) => keywords.some((kw) => n.toLowerCase().includes(kw)));
-  return outputs[name ?? outputNames[fallbackIndex]].data;
-}
-
 /**
  * Run YuNet face detection on `image` and return boxes in source-image pixel coordinates.
  * @param {import('onnxruntime-web').InferenceSession} session
@@ -197,23 +194,28 @@ export async function runFaceDetection(session, image) {
 
   const feeds = { [session.inputNames[0]]: inputTensor };
   const outputs = await session.run(feeds);
-  const outputNames = session.outputNames;
 
-  const loc = pickOutput(outputs, outputNames, ['loc', 'box'], 0);
-  const conf = pickOutput(outputs, outputNames, ['conf', 'cls', 'score'], 1);
-  const iouScores = pickOutput(outputs, outputNames, ['iou'], 2);
+  let decoded = [];
+  for (const stride of STEPS) {
+    const fm = INPUT_SIZE / stride;
+    const cls = outputs[`cls_${stride}`].data;
+    const obj = outputs[`obj_${stride}`].data;
+    const bbox = outputs[`bbox_${stride}`].data;
+    decoded = decoded.concat(decodeStride(cls, obj, bbox, fm, stride));
+  }
 
-  const priors = generatePriors(INPUT_SIZE);
-  const decoded = decodeDetections(loc, conf, iouScores, priors);
   const strong = decoded.filter((box) => box.score >= CONF_THRESHOLD);
   const kept = nms(strong, NMS_THRESHOLD);
 
+  // decodeStride already returns pixel coordinates in the INPUT_SIZE x
+  // INPUT_SIZE preprocessed canvas, so only the source-image scale factors
+  // (not an extra INPUT_SIZE multiply) map them back to source pixels.
   return kept.map((box) => ({
     bbox: {
-      x: Math.round(box.x * INPUT_SIZE * scaleX),
-      y: Math.round(box.y * INPUT_SIZE * scaleY),
-      w: Math.round(box.w * INPUT_SIZE * scaleX),
-      h: Math.round(box.h * INPUT_SIZE * scaleY),
+      x: Math.round(box.x * scaleX),
+      y: Math.round(box.y * scaleY),
+      w: Math.round(box.w * scaleX),
+      h: Math.round(box.h * scaleY),
     },
     confidence: box.score,
   }));

@@ -1,48 +1,66 @@
 import { describe, it, expect } from 'vitest';
-import { generatePriors, decodeDetections, nms } from '../../src/detection/faceDetector.js';
+import { generatePriors, decodeStride, nms } from '../../src/detection/faceDetector.js';
 
 describe('generatePriors', () => {
-  it('produces normalized [0,1] priors with positive width/height', () => {
-    const priors = generatePriors(320);
-    expect(priors.length).toBeGreaterThan(0);
-    for (const [cx, cy, w, h] of priors) {
-      expect(cx).toBeGreaterThanOrEqual(0);
-      expect(cx).toBeLessThanOrEqual(1);
-      expect(cy).toBeGreaterThanOrEqual(0);
-      expect(cy).toBeLessThanOrEqual(1);
-      expect(w).toBeGreaterThan(0);
-      expect(h).toBeGreaterThan(0);
+  it('produces one row-major {row,col,stride} anchor per grid cell, across all strides', () => {
+    const priors = generatePriors(640);
+    // strides [8,16,32] over a 640 input -> grids of 80x80, 40x40, 20x20
+    expect(priors.length).toBe(80 * 80 + 40 * 40 + 20 * 20);
+    for (const { row, col, stride } of priors) {
+      expect(row).toBeGreaterThanOrEqual(0);
+      expect(col).toBeGreaterThanOrEqual(0);
+      expect([8, 16, 32]).toContain(stride);
     }
+    // row-major order within the first (stride-8) grid
+    expect(priors[0]).toEqual({ row: 0, col: 0, stride: 8 });
+    expect(priors[1]).toEqual({ row: 0, col: 1, stride: 8 });
+    expect(priors[80]).toEqual({ row: 1, col: 0, stride: 8 });
   });
 
   it('is deterministic for a given input size', () => {
-    expect(generatePriors(320)).toEqual(generatePriors(320));
+    expect(generatePriors(640)).toEqual(generatePriors(640));
   });
 });
 
-describe('decodeDetections', () => {
-  it('reproduces the prior box exactly when loc deltas are zero and confidence is 1', () => {
-    const priors = [[0.5, 0.5, 0.1, 0.2]];
-    const loc = new Float32Array(14); // all-zero deltas
-    const conf = new Float32Array([0, 1]); // background=0, face=1
-    const iouScores = new Float32Array([1]);
+describe('decodeStride', () => {
+  it('reproduces the cell-center box exactly when bbox deltas are zero and scores are 1', () => {
+    const fm = 1;
+    const stride = 8;
+    const cls = new Float32Array([1]);
+    const obj = new Float32Array([1]);
+    const bbox = new Float32Array([0, 0, 0, 0]); // dx=dy=0, w=h=exp(0)*stride
 
-    const [box] = decodeDetections(loc, conf, iouScores, priors);
-    expect(box.x).toBeCloseTo(0.5 - 0.05);
-    expect(box.y).toBeCloseTo(0.5 - 0.1);
-    expect(box.w).toBeCloseTo(0.1);
-    expect(box.h).toBeCloseTo(0.2);
+    const [box] = decodeStride(cls, obj, bbox, fm, stride);
+    expect(box.x).toBeCloseTo(0 - stride / 2);
+    expect(box.y).toBeCloseTo(0 - stride / 2);
+    expect(box.w).toBeCloseTo(stride);
+    expect(box.h).toBeCloseTo(stride);
     expect(box.score).toBeCloseTo(1);
   });
 
-  it('clamps out-of-range iou scores before combining with class score', () => {
-    const priors = [[0.5, 0.5, 0.1, 0.1]];
-    const loc = new Float32Array(14);
-    const conf = new Float32Array([0, 1]);
-    const iouScores = new Float32Array([5]); // should clamp to 1
+  it('clamps out-of-range scores before combining cls and obj', () => {
+    const fm = 1;
+    const stride = 8;
+    const cls = new Float32Array([5]); // should clamp to 1
+    const obj = new Float32Array([1]);
+    const bbox = new Float32Array([0, 0, 0, 0]);
 
-    const [box] = decodeDetections(loc, conf, iouScores, priors);
+    const [box] = decodeStride(cls, obj, bbox, fm, stride);
     expect(box.score).toBeCloseTo(1);
+  });
+
+  it('offsets the cell center by (col, row) before scaling by stride', () => {
+    const fm = 2;
+    const stride = 8;
+    const cls = new Float32Array([1, 1, 1, 1]);
+    const obj = new Float32Array([1, 1, 1, 1]);
+    const bbox = new Float32Array(2 * 2 * 4); // all-zero deltas
+
+    const boxes = decodeStride(cls, obj, bbox, fm, stride);
+    // idx 1 -> row 0, col 1 -> cx = (1 + 0) * 8 = 8
+    expect(boxes[1].x).toBeCloseTo(8 - stride / 2);
+    // idx 2 -> row 1, col 0 -> cy = (1 + 0) * 8 = 8
+    expect(boxes[2].y).toBeCloseTo(8 - stride / 2);
   });
 });
 
