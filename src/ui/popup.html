@@ -84,7 +84,12 @@
     </main>
   </div>
 
-  <script type="module" src="popup.js"></script>
+  <!-- Bundled by scripts/build-popup.mjs (see CLAUDE.md pending shared-file
+       change note): raw popup.js uses bare specifiers ('onnxruntime-web',
+       'tesseract.js') transitively via src/detection, which the browser's
+       native ES module loader cannot resolve. Run `node scripts/build-popup.mjs`
+       (or `npm run build:popup` once wired into package.json) to regenerate. -->
+  <script type="module" src="../../dist/popup.bundle.js"></script>
 </body>
 </html>
 
