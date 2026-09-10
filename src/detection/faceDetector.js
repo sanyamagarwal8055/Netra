@@ -45,7 +45,7 @@ async function getOrt() {
  * @param {string} [modelUrl]
  * @returns {Promise<import('onnxruntime-web').InferenceSession>}
  */
-export async function loadFaceDetectorSession(modelUrl = 'models/face_detection_yunet_2023mar.onnx') {
+export async function loadFaceDetectorSession(modelUrl) {
   const ort = await getOrt();
   // MV3 extensions cannot load remotely-hosted code, so the ORT wasm binaries
   // are vendored locally into models/ort-wasm/ (via `npm run build:wasm`,
@@ -55,6 +55,7 @@ export async function loadFaceDetectorSession(modelUrl = 'models/face_detection_
   // to its own ort.node.min.mjs backend and doesn't need this — setting it
   // there breaks module resolution (it tries to `import` the path string).
   const isNode = typeof process !== 'undefined' && !!process.versions?.node;
+  const hasExtensionRuntime = !isNode && typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
   if (!isNode) {
     // A bare relative string is resolved against the *importing module's*
     // URL (wherever the bundler places onnxruntime-web's loader), not the
@@ -62,12 +63,21 @@ export async function loadFaceDetectorSession(modelUrl = 'models/face_detection_
     // chrome.runtime.getURL gives an absolute chrome-extension:// URL that's
     // correct regardless of bundle layout. Fall back to the relative path
     // for non-extension contexts (e.g. a plain browser page during dev).
-    const hasExtensionRuntime = typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
     ort.env.wasm.wasmPaths = hasExtensionRuntime
       ? chrome.runtime.getURL('models/ort-wasm/')
       : 'models/ort-wasm/';
   }
-  return ort.InferenceSession.create(modelUrl);
+  // Same relative-path problem as wasmPaths above, applied to the model file
+  // itself: resolved from src/ui/popup.html (or wherever the bundle lands),
+  // a bare 'models/...' path 404s instead of resolving from the extension
+  // root. Only fall back to the bare relative path when there's no
+  // chrome.runtime to resolve against (the Node smoke test, or a plain dev
+  // page) — an explicit caller-supplied modelUrl is always used as-is.
+  const resolvedModelUrl = modelUrl
+    ?? (hasExtensionRuntime
+      ? chrome.runtime.getURL('models/face_detection_yunet_2023mar.onnx')
+      : 'models/face_detection_yunet_2023mar.onnx');
+  return ort.InferenceSession.create(resolvedModelUrl);
 }
 
 /**

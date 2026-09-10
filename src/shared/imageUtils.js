@@ -10,7 +10,22 @@
  * @returns {Promise<ImageBitmap>}
  */
 export async function loadImageFromFile(file) {
-  throw new Error('imageUtils.loadImageFromFile: not implemented yet');
+  if (typeof createImageBitmap === 'function') {
+    return await createImageBitmap(file);
+  }
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = (err) => {
+      URL.revokeObjectURL(url);
+      reject(err);
+    };
+    img.src = url;
+  });
 }
 
 /**
@@ -19,7 +34,17 @@ export async function loadImageFromFile(file) {
  * @returns {ImageData}
  */
 export function imageToImageData(image) {
-  throw new Error('imageUtils.imageToImageData: not implemented yet');
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('imageUtils.imageToImageData: failed to get 2d context');
+  }
+  ctx.drawImage(image, 0, 0);
+  return ctx.getImageData(0, 0, width, height);
 }
 
 /**
@@ -28,5 +53,6 @@ export function imageToImageData(image) {
  * @returns {string} data URL
  */
 export function canvasToDataUrl(canvas) {
-  throw new Error('imageUtils.canvasToDataUrl: not implemented yet');
+  return canvas.toDataURL('image/png');
 }
+

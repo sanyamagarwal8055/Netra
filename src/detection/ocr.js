@@ -55,6 +55,15 @@ function getWorker() {
             workerPath: localAssetPath('models/tesseract/worker.min.js'),
             corePath: localAssetPath('models/tesseract/'),
             langPath: localAssetPath('models/tesseract/'),
+            // Tesseract.js's default worker.min.js loading wraps workerPath in a
+            // blob: URL and spawns a Worker from that. A blob: worker's effective
+            // origin doesn't match the extension's own chrome-extension://<id>
+            // origin, so MV3's script-src 'self' CSP blocks its importScripts()
+            // of the real worker.min.js. workerPath is already a real
+            // chrome-extension:// URL (via localAssetPath/chrome.runtime.getURL),
+            // which does satisfy 'self' — so skip the blob wrapper and spawn the
+            // worker straight from workerPath.
+            workerBlobURL: false,
             cacheMethod: 'none',
           };
       return createWorker('eng', OEM.LSTM_ONLY, options);

@@ -2,13 +2,94 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>NETRA</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NETRA — On-Device Redaction</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <h1>NETRA</h1>
-  <input type="file" id="imageInput" accept="image/*" />
-  <canvas id="outputCanvas"></canvas>
-  <script type="module" src="popup.js"></script>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">👁️</div>
+        <div>
+          <h1 class="brand-title">NETRA</h1>
+          <p class="brand-subtitle">On-Device Visual Privacy</p>
+        </div>
+      </div>
+      <span class="status-badge" id="statusBadge">Client-Side</span>
+    </header>
+
+    <!-- Upload Dropzone -->
+    <section class="upload-section" id="uploadSection">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="imageInput" accept="image/*" class="file-input" />
+        <div class="dropzone-content">
+          <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          <p class="dropzone-text"><strong>Click to upload</strong> or drag & drop</p>
+          <span class="dropzone-hint">PNG, JPG, WebP supported</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Processing Indicator -->
+    <div class="loading-bar" id="loadingBar" hidden>
+      <div class="spinner"></div>
+      <span>Redacting sensitive regions on-device...</span>
+    </div>
+
+    <!-- Results Section (hidden until an image is uploaded) -->
+    <main class="results-section" id="resultsSection" hidden>
+      <!-- View Controls -->
+      <div class="view-controls">
+        <div class="view-tabs">
+          <button type="button" class="tab-btn active" id="tabRedacted">Redacted (SoM)</button>
+          <button type="button" class="tab-btn" id="tabOriginal">Original</button>
+        </div>
+        <button type="button" class="action-btn secondary" id="resetBtn" title="Upload another image">✕ Reset</button>
+      </div>
+
+      <!-- Canvas / Preview Display Area -->
+      <div class="canvas-wrapper">
+        <canvas id="outputCanvas" class="preview-canvas"></canvas>
+        <img id="originalPreview" class="preview-img" hidden alt="Original preview" />
+      </div>
+
+      <!-- Detection Summary -->
+      <div class="detections-panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Detected Sensitive Regions</h2>
+          <span class="count-pill" id="detectionCount">0 found</span>
+        </div>
+        <div class="detections-list" id="detectionsList">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Download Action -->
+      <div class="actions-panel">
+        <button type="button" class="action-btn primary" id="downloadBtn">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Download Redacted Image
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <!-- Bundled by scripts/build-popup.mjs (see CLAUDE.md pending shared-file
+       change note): raw popup.js uses bare specifiers ('onnxruntime-web',
+       'tesseract.js') transitively via src/detection, which the browser's
+       native ES module loader cannot resolve. Run `node scripts/build-popup.mjs`
+       (or `npm run build:popup` once wired into package.json) to regenerate. -->
+  <script type="module" src="../../dist/popup.bundle.js"></script>
 </body>
 </html>
+
