@@ -3,8 +3,7 @@
 // swap the import below for the real detection module once Person 1's
 // implementation is merged to main.
 
-// import { detectSensitiveRegions } from '../detection/index.js'; // <-- swap in at integration time
-import { getMockDetections } from '../mock/mockDetections.js';
+import { detectSensitiveRegions } from '../detection/index.js';
 import { renderRedactedImage } from '../redaction/index.js';
 import { loadImageFromFile, canvasToDataUrl } from '../shared/imageUtils.js';
 
@@ -82,9 +81,7 @@ async function processFile(file) {
     originalPreview.src = originalObjectUrl;
 
     // 2. Obtain detections
-    // TODO(integration): replace getMockDetections() with
-    // await detectSensitiveRegions(image)
-    const detections = await getMockDetections();
+    const detections = await detectSensitiveRegions(image);
 
     // 3. Render redacted image with Set-of-Mark
     const redactedCanvas = renderRedactedImage(image, detections);
