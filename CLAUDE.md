@@ -6,6 +6,9 @@ Project: NETRA — privacy-preserving on-device visual perception prototype for 
 
 This file is the shared source of truth for how the two contributors work in this repo. Any AI assistant (Claude Code or otherwise) working in this repo must follow these rules before writing or editing any file.
 
+This file covers rules, ownership, and technical decisions only. For setup, running, and testing
+instructions, see [`README.md`](README.md) — don't duplicate those steps here.
+
 ---
 
 ## 1. Contributors and modules
@@ -101,6 +104,32 @@ This is computer-vision-only. There is no DOM or Accessibility Tree access anywh
 3. Draw a Set-of-Mark numbered label near each redacted region.
 4. Export the final canvas as the output image.
 5. Empty `detections` array → return the original image unmodified, don't error.
+
+**Browser packaging (decided 2026-09-10):** `popup.html` loads a bundled script
+(`dist/popup.bundle.js`), not raw `src/ui/popup.js`. The browser's native ES module loader has no
+bare-specifier resolution (`import 'onnxruntime-web'`, used transitively via
+`src/detection/faceDetector.js` and `ocr.js`, only resolves in Node/Vitest), so the popup script
+is bundled with esbuild (`scripts/build-popup.mjs`) rather than fixed via an import map — an
+import map can't select `onnxruntime-web`'s `onnxruntime-web-use-extern-wasm` export condition
+(needed so it respects the already-vendored `models/ort-wasm/` assets instead of trying to
+resolve its wasm loader relative to itself), and can't apply `tesseract.js`'s
+`package.json#browser` field remap (`worker/node` → `worker/browser`) the way a bundler does.
+`dist/` is gitignored; see `README.md` for the build command. Two related settled decisions:
+- `manifest.json` sets `content_security_policy.extension_pages` to
+  `script-src 'self' 'wasm-unsafe-eval'; object-src 'self';` — MV3's default CSP blocks
+  WebAssembly compilation otherwise, and both `onnxruntime-web` and Tesseract's OCR core compile
+  wasm on-device. `'wasm-unsafe-eval'` is scoped to wasm only (distinct from, and much narrower
+  than, `'unsafe-eval'`).
+- `ocr.js`'s Tesseract worker is created with `workerBlobURL: false` in the extension context —
+  Tesseract's default blob-wrapped worker has an effective origin that doesn't match `'self'`
+  under that same CSP, so it's spawned directly from a `chrome.runtime.getURL()` path instead.
+
+**Accepted detection gap:** masked password/PIN fields (dot/asterisk-style) are not detected —
+Tesseract's OCR can't reliably segment or transcribe mask glyphs (observed failures: transcribed
+as unrelated letters, or not segmented as a text line at all). This is an accepted scope
+limitation, not a bug to fix by pattern-matching one observed OCR quirk. See `README.md`'s Known
+Limitations section for the user-facing summary and `src/detection/piiClassifier.js`'s file
+header for the full technical detail.
 
 ---
 
