@@ -6,7 +6,13 @@
   "private": true,
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:wasm": "node scripts/copy-ort-wasm.mjs",
+    "build:tesseract": "node scripts/copy-tesseract-assets.mjs"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.19.2",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "vitest": "^2.0.0"

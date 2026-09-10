@@ -3,3 +3,16 @@ dist/
 .DS_Store
 *.log
 .env
+
+# Build artifact from `npm run build:wasm` (copied from node_modules/onnxruntime-web/dist);
+# these are 10s of MB per file, regenerate rather than commit.
+models/ort-wasm/
+
+# Build artifact from `npm run build:tesseract` (worker script + wasm core
+# copied from node_modules, English language data downloaded once from
+# jsdelivr) — regenerate rather than commit.
+models/tesseract/
+
+# Tesseract.js's own opportunistic cache also defaults to writing here
+# unless cacheMethod/cachePath are overridden — a local dev-run artifact.
+*.traineddata
